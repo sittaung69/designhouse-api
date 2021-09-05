@@ -9,6 +9,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
 
 class UploadImage implements ShouldQueue
 {
@@ -34,7 +36,8 @@ class UploadImage implements ShouldQueue
     public function handle()
     {
         $disk = $this->design->disk;
-        $original_file = storage_path() . '/uploads/original/' . $this->design->image;
+        $filename = $this->design->image;
+        $original_file = storage_path() . '/uploads/original/' . $filename;
 
         try {
             // create the large imageg and save to tmp disk
@@ -42,17 +45,39 @@ class UploadImage implements ShouldQueue
                 ->fit(800, 600, function($contraint) {
                     $contraint->aspectRatio();
                 })
-                ->save($large = storage_path('uploads/large/' . $this->design->image));
+                ->save($large = storage_path('uploads/large/' . $filename));
             
             // create the thumbnail image
             Image::make($original_file)
                 ->fit(250, 200, function($contraint) {
                     $contraint->aspectRatio();
                 })
-                ->save($large = storage_path('uploads/thumbnail/' . $this->design->image));
+                ->save($thumbnail = storage_path('uploads/thumbnail/' . $filename));
             
             // store images to permanent disk
-            
+            // original images
+            if (Storage::disk($disk)
+                ->put('uploads/designs/original/' . $filename, fopen($original_file, 'r+'))) {
+                    File::delete($original_file);
+                }
+
+            // large images
+            if (Storage::disk($disk)
+                ->put('uploads/designs/large/' . $filename, fopen($large, 'r+'))) {
+                    File::delete($large);
+                }
+
+            // thumbnail images
+            if (Storage::disk($disk)
+                ->put('uploads/designs/thumbnail/' . $filename, fopen($thumbnail, 'r+'))) {
+                    File::delete($thumbnail);
+                }
+
+            // update the database record with success flag
+            $this->design->update([
+                'upload_successful' => true
+            ]);
+
         } catch (\Exception $e) {
             \Log::error($e->getMessage());
         }
